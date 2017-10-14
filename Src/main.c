@@ -41,7 +41,7 @@
 
 /* USER CODE BEGIN Includes */
 #include "defines.h"
-#include "font4.h"
+#include "matrix.h"
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -56,57 +56,12 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+uint8_t mat1_buf[MAT1_COLS];
+char mat1_text[1000];
+struct matrix_init mat1_init;
+struct matrix mat1;
+
 uint32_t ticks_per_us;
-const uint8_t display_modules = 6;
-const uint8_t display_columns = 48;
-//const uint8_t on_time = 20;
-const uint16_t display_scroll_period = 15;
-
-uint8_t display_data[48];/* = {
-    0b11111111,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b11111111,
-
-    0b11111111,
-    0b11000011,
-    0b10100101,
-    0b10011001,
-    0b10011001,
-    0b10100101,
-    0b11000011,
-    0b11111111,
-
-    0b11111111,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b10000001,
-    0b11111111,
-
-    0b11111111,
-    0b11000011,
-    0b10100101,
-    0b10011001,
-    0b10011001,
-    0b10100101,
-    0b11000011,
-    0b11111111,
-};*/
-
-uint8_t display_column = 0;
-uint16_t display_period_cnt = 0;  // incremented by 1 every period (1ms)
-uint16_t display_scroll = 0;
-
-char txt_buffer[100];
-uint8_t txt_len;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,8 +75,7 @@ static void MX_SPI1_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-void column_flush();
-void column_write(uint8_t);
+void udelay(uint32_t delay);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -132,134 +86,47 @@ void udelay(uint32_t delay)
   while (__HAL_TIM_GET_COUNTER(&htim2) - ticks_start < ticks_delay) ;
 }
 
-void column_off(uint8_t depth)
-{
-  for (uint8_t i = 0; i < depth; i++)
-    column_write(0);
-  column_flush();
-}
-
-void column_write(uint8_t dat)
-{
-  // shift out column data (CDI, CCK)
-  for (uint8_t i = 0; i < 8; i++) {
-    HAL_GPIO_WritePin(CDI_PORT, CDI_PIN, dat & (0b10000000 >> i) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    //udelay(1);
-    HAL_GPIO_WritePin(CCK_PORT, CCK_PIN, GPIO_PIN_SET);
-    //udelay(1);
-    HAL_GPIO_WritePin(CCK_PORT, CCK_PIN, GPIO_PIN_RESET);
-    //udelay(1);
-  }
-}
-
-void column_flush()
-{
-  // set column latch (CLE)
-  HAL_GPIO_WritePin(CLE_PORT, CLE_PIN, GPIO_PIN_SET);
-  //udelay(2);
-  HAL_GPIO_WritePin(CLE_PORT, CLE_PIN, GPIO_PIN_RESET);
-  //udelay(2);
-}
-
-void select_column(uint8_t col)
-{
-  HAL_GPIO_WritePin(COL_A_PORT, COL_A_PIN, col & 0b001 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(COL_B_PORT, COL_B_PIN, col & 0b010 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(COL_C_PORT, COL_C_PIN, col & 0b100 ? GPIO_PIN_SET : GPIO_PIN_RESET);
-}
-
-/*
-void display_flash()
-{
-  for (uint8_t row = 0; row < 8; row++) {
-    select_column(row);
-    column_write(display_data[row + 24]);
-    column_write(display_data[row + 16]);
-    column_write(display_data[row + 8]);
-    column_write(display_data[row]);
-    column_flush();
-    udelay(on_time);
-    column_off(4);
-  }
-}
-*/
-
-void display_clear()
-{
-  for (uint8_t col = 0; col < display_columns; col++) {
-    display_data[col] = 0;
-  }
-}
-
-void display_write_text(const char *text)
-{
-  uint8_t disp_col = 0;
-  for (; *text != '\0'; text++) {
-    uint16_t char_base = (*text - 32) * 5;
-
-    for (uint8_t i = 0; i < 5; i++) {
-      display_data[disp_col++] = font[char_base+i];
-      if (disp_col > display_columns)
-        return;
-    }
-
-    display_data[disp_col++] = 0;
-    if (disp_col > display_columns)
-      return;
-  }
-}
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   if (htim == &htim3) {
-    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_11);
+    HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_11);  // For debugging
 
-    // flash current display column
-    column_off(display_modules);
-    select_column(display_column);
-    for (int16_t i_mod = display_modules - 1; i_mod >= 0; i_mod--) {
-      column_write(display_data[display_column + 8 * i_mod]);
-    }
-    column_flush();
-
-    display_column++;
-    if (display_column >= 8)
-      display_column = 0;
-
-    // after cycling through all columns (every 8ms)
-    if (display_column == 0) {
-      display_period_cnt++;
-
-      // scroll every display_scroll_period ms
-      if (display_period_cnt >= display_scroll_period) {
-        display_scroll++;
-        if (txt_len * 6 < display_columns || display_scroll >= txt_len * 6)
-          display_scroll = 0;
-        display_period_cnt = 0;
-      }
-
-      // TODO: update display from text after last column
-      // TODO: sync??
-      uint16_t i_char = display_scroll / 6;
-      uint16_t char_base = (txt_buffer[i_char] - 32) * 5;
-      uint16_t char_col = display_scroll % 6;
-      for (uint8_t display_col = 0; display_col < display_columns; display_col++) {
-        display_data[display_col] = char_col < 5 ? font[char_base + char_col] : 0x00;
-
-        char_col++;
-        if (char_col > 5) {
-          i_char++;
-          if (i_char >= txt_len) {
-            i_char = 0;
-          }
-          char_base = (txt_buffer[i_char] - 32) * 5;
-          char_col = 0;
-        }
-      }
-    }
+    matrix_update(&mat1);
   }
 
   __HAL_TIM_CLEAR_IT(htim, TIM_IT_UPDATE);
+}
+
+void mat1_setup()
+{
+  // TODO: initialize mat1_init struct
+  mat1_init.columns = MAT1_COLS;
+  mat1_init.rows = 8;
+  mat1_init.modules = 6;
+  mat1_init.scroll_period = 10;
+
+  mat1_init.column_buffer = mat1_buf;
+  mat1_init.text_buffer = mat1_text;
+
+  mat1_init.cle_port = GPIOB;
+  mat1_init.cle_pin = GPIO_PIN_12;
+  mat1_init.csa_port = GPIOB;
+  mat1_init.csa_pin = GPIO_PIN_14;
+  mat1_init.csb_port = GPIOB;
+  mat1_init.csb_pin = GPIO_PIN_13;
+  mat1_init.csc_port = GPIOB;
+  mat1_init.csc_pin = GPIO_PIN_15;
+  mat1_init.cdi_port = GPIOA;
+  mat1_init.cdi_pin = GPIO_PIN_8;
+  mat1_init.cck_port = GPIOA;
+  mat1_init.cck_pin = GPIO_PIN_9;
+
+  // TODO: call init_matrix
+
+  init_matrix(&mat1, &mat1_init);
+
+  // TODO: write initial text
+  mat1.text_len = sprintf(mat1_text, "MATRIX_INIT ");
 }
 /* USER CODE END 0 */
 
@@ -299,28 +166,8 @@ int main(void)
   if (HAL_TIM_Base_Start(&htim2) != HAL_OK)
     _Error_Handler(__FILE__, __LINE__);
 
-
-
-  uint32_t counter = 0;
-  //uint8_t bar_pos = 0;
-  //uint8_t moving_right = 1;
-
-  //char txt_buf[32];
-
-  /*
-  HAL_GPIO_WritePin(CLE_PORT, CLE_PIN, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(RI_A_PORT, RI_A_PIN, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(RI_B_PORT, RI_B_PIN, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(RI_C_PORT, RI_C_PIN, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(CDI_PORT, CDI_PIN, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(CCK_PORT, CCK_PIN, GPIO_PIN_RESET);
-  */
-  //display_clear();
-
-  txt_len = sprintf(txt_buffer, "Freiburg: 18°C Berlin: 15°C Feldberg 10°C ");
-
+  mat1_setup();
   HAL_TIM_Base_Start_IT(&htim3);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -330,55 +177,7 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-
-    /*
-    ++counter;
-    if (counter > 300 && counter % 5 == 0) {
-
-      for (uint8_t col = 0; col < 16; col++) {
-        if (col == bar_pos)
-          display_data[col] = 0xff;
-        else
-          display_data[col] = 0x00;
-      }
-
-      if (moving_right)
-        bar_pos++;
-      else
-        bar_pos--;
-
-      if (bar_pos == 0 || bar_pos == 15)
-        moving_right = !moving_right;
-
-    }
-    */
-
-    //column_write(counter);
-    //column_write(counter);
-    //column_flush();
-
-    // TODO: set row (RI_A, RI_B, RI_C)
-    //select_column(counter);
-
-    //counter++;
-
-    //int written = sprintf(txt_buffer, "%lu ", ++counter);
-    //txt_len = written > 0 ? written : 0;
-
-    //display_write_text(txt_buffer);
-
-    //display_flash();
-
-    //HAL_Delay(100);
-
-    /* Blinking LED:
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
-    //HAL_Delay(500);
-    udelay(50000);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
-    //HAL_Delay(500);
-    udelay(50000);
-    /**/
+    // TODO: implement something!
   }
   /* USER CODE END 3 */
 

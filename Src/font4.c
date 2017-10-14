@@ -1,6 +1,5 @@
-#ifndef FONT_H_
-#define FONT_H_
 #include <stdint.h>
+
 const uint8_t font[] = {
   0b00000000,
   0b00000000,
@@ -478,4 +477,3 @@ const uint8_t font[] = {
   0b00010000,
   0b00001000,
 };
-#endif  // FONT_H_
