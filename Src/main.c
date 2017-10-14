@@ -62,6 +62,10 @@ struct matrix_init mat1_init;
 struct matrix mat1;
 
 uint32_t ticks_per_us;
+
+volatile uint8_t state = STATE_NONE;
+volatile uint8_t addr_buf;
+volatile uint16_t len_buf;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,6 +80,7 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 void udelay(uint32_t delay);
+void SPI1_RxAddr(SPI_HandleTypeDef *hspi);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -95,6 +100,37 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
 
   __HAL_TIM_CLEAR_IT(htim, TIM_IT_UPDATE);
+}
+
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+  switch (state) {
+  case STATE_RX:
+    SPI1_RxAddr(hspi);
+    break;
+  case STATE_SETTEXT_WAITLEN:
+    // length received, start text transfer
+    state = STATE_SETTEXT_XFTEXT;
+    break;
+  case STATE_SETTEXT_WAITTEXT:
+    // text transfer complete, start new rx
+    state = STATE_NONE;
+    break;
+  }
+}
+
+void SPI1_RxAddr(SPI_HandleTypeDef *hspi)
+{
+  switch (addr_buf) {
+   case ADDR_SETTEXT:
+     // address was for SETTEXT, start length transfer
+     state = STATE_SETTEXT_XFLEN;
+     break;
+   default:
+     // unknown address, start new rx
+     state = STATE_NONE;
+     break;
+   }
 }
 
 void mat1_setup()
@@ -168,6 +204,8 @@ int main(void)
 
   mat1_setup();
   HAL_TIM_Base_Start_IT(&htim3);
+
+  //HAL_SPI_Receive_IT(&hspi1, &addr_buf, sizeof(addr_buf));
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -177,7 +215,25 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-    // TODO: implement something!
+    // SPI transfer management
+    switch (state) {
+    case STATE_NONE:
+      // no rx in the pipe, start one
+      state = STATE_RX;
+      HAL_SPI_Receive_IT(&hspi1, &addr_buf, sizeof(addr_buf));
+      break;
+    case STATE_SETTEXT_XFLEN:
+      // start length rx
+      state = STATE_SETTEXT_WAITLEN;
+      HAL_SPI_Receive_IT(&hspi1, &len_buf, sizeof(len_buf));
+      break;
+    case STATE_SETTEXT_XFTEXT:
+      // start text rx
+      state = STATE_SETTEXT_WAITTEXT;
+      volatile uint8_t *target = (uint8_t*)mat1_text;
+      HAL_SPI_Receive_DMA(&hspi1, target, len_buf);
+      break;
+    }
   }
   /* USER CODE END 3 */
 
