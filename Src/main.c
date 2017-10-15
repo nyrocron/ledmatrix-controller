@@ -46,7 +46,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
-DMA_HandleTypeDef hdma_spi1_rx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -71,7 +70,6 @@ volatile uint16_t len_buf;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
@@ -114,6 +112,7 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
     break;
   case STATE_SETTEXT_WAITTEXT:
     // text transfer complete, start new rx
+    mat1.text_len = len_buf;
     state = STATE_NONE;
     break;
   }
@@ -190,7 +189,6 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
@@ -230,8 +228,8 @@ int main(void)
     case STATE_SETTEXT_XFTEXT:
       // start text rx
       state = STATE_SETTEXT_WAITTEXT;
-      volatile uint8_t *target = (uint8_t*)mat1_text;
-      HAL_SPI_Receive_DMA(&hspi1, target, len_buf);
+      //volatile uint8_t *target = (uint8_t*)mat1_text;
+      HAL_SPI_Receive_IT(&hspi1, mat1_text, len_buf);
       break;
     }
   }
@@ -403,21 +401,6 @@ static void MX_USART2_UART_Init(void)
   {
     _Error_Handler(__FILE__, __LINE__);
   }
-
-}
-
-/** 
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void) 
-{
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel2_3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 

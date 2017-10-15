@@ -11,6 +11,7 @@
 #define MAT1_COLS 48
 
 #define ADDR_SETTEXT 0x01
+#define ADDR_SETSCROLL 0x02
 
 #define STATE_NONE 0x00
 #define STATE_RX 0x01
