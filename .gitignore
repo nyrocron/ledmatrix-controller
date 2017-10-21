@@ -50,3 +50,7 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+/Debug/
+/Drivers/
+/STM32L073CZTx_FLASH.ld
